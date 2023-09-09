@@ -24,8 +24,7 @@ def is_valid_variable(name, whitelist):
         and name not in dir(builtins)
         and not keyword.iskeyword(name)
         and name not in whitelist
-        and name != "_"
-                and name != "__"
+        and not name.startswith("_")
     )
 
 
@@ -35,6 +34,8 @@ def parse_code(code_str, whitelist):
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and is_valid_variable(node.name, whitelist):
             variables_list.add(node.name)
+            for param in node.args.args:
+                variables_list.add(param.arg)
         elif isinstance(node, ast.Name) and is_valid_variable(node.id, whitelist):
             variables_list.add(node.id)
         elif isinstance(node, ast.ImportFrom):
@@ -45,39 +46,37 @@ def parse_code(code_str, whitelist):
     return variables_list
 
 
-def encrypt(code_str, cpx, verbose):
-    var_list = sorted(parse_code(code_str, whitelist), key=len, reverse=True)
-    code_str = list(code_str)
+def encrypt(code_str, complexity, verbose):
+    global whitelist
+    
+    tree = ast.parse(code_str)
+    
+    variables_list = parse_code(code_str, whitelist)
+    
     n = 0
-    skip_next = False
-    for i in var_list:
-        new_var = convert(n, cpx)
+    for i in variables_list:
+        new_var = convert(n, complexity)
         if keyword.iskeyword(new_var):
             n += 1
-            new_var = convert(n, cpx)
+            new_var = convert(n, complexity)
         if verbose:
             print(f"{i} -> {new_var}")
-        for j in range(len(code_str)):
-            if skip_next:
-                skip_next = False
-                continue
-            if code_str[j: j + len(i)] == list(i):
-                if not (
-                    j > 0 and code_str[j - 1].isalpha()
-                ) and not (
-                    j + len(i) < len(code_str) and code_str[j + len(i)].isalpha()
-                ):
-                    code_str[j: j + len(i)] = list(new_var)
-                    skip_next = True
+        
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == i:
+                node.id = new_var
+            elif isinstance(node, ast.FunctionDef) and node.name == i:
+                node.name = new_var
+            elif isinstance(node, ast.arg) and node.arg == i:
+                node.arg = new_var
         n += 1
-    code_str = "".join(code_str).replace("\n\n\n", "\n\n")
-    new_str = ""
-    for i in code_str.split("\n"):
-        if i.startswith("# "):
-            new_str += "\n"
-            continue
-        new_str += i.split(" #")[0] + "\n"
-    return new_str
+    
+    modified_code = ast.unparse(tree)
+    
+    modified_code = modified_code.replace("\n\n\n", "\n\n")
+    
+    return modified_code
+
 
 def add_module_functions_to_whitelist(name, is_module=False):
     if is_module:
